@@ -16,6 +16,89 @@ lập tức (Zero Restart)."**
 
 ---
 
+## 📐 Kiến Trúc Luồng Đăng Ký & Thực Thi Plugin
+
+```text
+====================================================================================================
+               LUỒNG HOẠT ĐỘNG: DROP-IN PLUGIN -> DYNAMIC REGISTER -> GRAPHRAG
+====================================================================================================
+
+[ 1. HÀNH ĐỘNG CỦA DEVELOPER / KHÁCH HÀNG ]
+   │
+   │  Viết file: "censor_keyword.py"
+   │  (Chứa class có hàm gắn decorator @hookimpl)
+   │
+   ▼
+[ 2. THẢ FILE VÀO THƯ MỤC "plugins/" ]
+   │  
+   │  cp censor_keyword.py plugins/
+   │
+   ▼
+[ 3. DYNAMIC ACL MANAGER (app/services/acl_manager.py) ]
+   │
+   ├──► Quét thư mục: Path("plugins/").glob("*.py")
+   │
+   ├──► Đọc & Compile mã nguồn (Zero Bytecode Caching):
+   │       source_code = file_path.read_text()
+   │       code = compile(source_code, path, 'exec')
+   │       exec(code, module.__dict__)
+   │
+   ├──► Tự động phát hiện Plugin Class (Reflection / Inspection):
+   │       Tìm thấy: class CensorKeywordPlugin
+   │       Tạo instance: plugin_instance = CensorKeywordPlugin()
+   │
+   ▼
+[ 4. NẠP VÀO PLUGGY ENGINE (RAM Memory - Zero Downtime) ]
+   │
+   │  pm.register(plugin_instance, name="censor_keyword")
+   │  
+   ├──► Cập nhật bảng điều phối Hook:
+   │       ┌─────────────────────────────────────────────────────────────┐
+   │       │ Pluggy Hook Registry ("graphrag_acl")                       │
+   │       │  ├── allow_node:                                            │
+   │       │  │    [RoleBasedACL, TenantIsolationACL, CensorKeyword] <───┤ (Thêm mới vào RAM)
+   │       │  └── filter_output_doc:                                     │
+   │       │       [PIIMaskingACL, CensorKeyword]                    <───┤ (Thêm mới vào RAM)
+   │       └─────────────────────────────────────────────────────────────┘
+   │
+   ▼
+[ 5. THỰC THI QUA GRAPHRAG EXTRACTION PIPELINE ]
+   │
+   │  Client gọi: POST /api/v1/pipeline/extract
+   │
+   ├──► [Điểm Chặn 1: Tiền Xử Lý (Dòng 444 trong GraphRAG ExtractionPipeline)]
+   │       │
+   │       ▼
+   │    ExtractionPipeline.handle_input_docs(docs)
+   │       │
+   │       ▼
+   │    PluggyACLPipelineDecorator (Adapter)
+   │       │
+   │       └──► pm.hook.allow_node(node, context)
+   │               ├── RoleBasedACL        ──► True
+   │               ├── TenantIsolationACL  ──► True
+   │               └── CensorKeywordPlugin ──► FALSE (Phát hiện từ "sáp nhập")
+   │               
+   │               ==> [VETO RULE: Bị loại bỏ ngay trước khi chunking / LLM]
+   │
+   └──► [Điểm Chặn 2: Hậu Xử Lý (Dòng 489 trong GraphRAG ExtractionPipeline)]
+           │
+           ▼
+        ExtractionPipeline.handle_output_doc(doc)
+           │
+           ▼
+        PluggyACLPipelineDecorator (Adapter)
+           │
+           └──► pm.hook.filter_output_doc(doc, context)
+                   ├── PIIMaskingACL       ──► [REDACTED_EMAIL]
+                   └── CensorKeywordPlugin ──► Chèn [VERIFIED_2026] vào text
+                   
+                   ==> [Trả kết quả an toàn & đã enrich về cho Client]
+====================================================================================================
+```
+
+---
+
 ## 🌟 Tính Năng Nổi Bật
 
 1. **⚡ Thực Thi Qua `ExtractionPipeline` Thật Của GraphRAG**:

@@ -1,4 +1,8 @@
-import copy
+
+from graphrag_toolkit.lexical_graph.indexing.extract.extraction_pipeline import ExtractionPipeline
+from graphrag_toolkit.lexical_graph.indexing.model import SourceDocument
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.schema import Document
 
 from app.schemas.pipeline_schema import (
     ExtractRequest,
@@ -12,8 +16,8 @@ from app.services.pluggy_decorator import PluggyACLPipelineDecorator
 
 class PipelineService:
     """
-    Service mô phỏng quá trình thực thi trích xuất tài liệu (Extraction Pipeline)
-    có gắn kết với hệ thống Dynamic ACL Plugin qua PluggyACLPipelineDecorator.
+    Service trích xuất tài liệu tích hợp trực tiếp với ExtractionPipeline thực tế
+    của GraphRAG-Toolkit thông qua PluggyACLPipelineDecorator.
     """
 
     def __init__(self, acl_mgr: DynamicACLManager = None):
@@ -21,43 +25,89 @@ class PipelineService:
 
     def run_extract(self, request: ExtractRequest) -> ExtractResponse:
         """
-        Thực thi pipeline trích xuất tài liệu:
-        1. Tiền xử lý lọc tài liệu & nodes (RBAC, Tenant Isolation) qua `handle_input_docs`.
-        2. Mô phỏng trích xuất (giữ lại các nodes hợp lệ).
-        3. Hậu xử lý kết quả (PII Masking) qua `handle_output_doc`.
+        Thực thi trích xuất tài liệu qua ExtractionPipeline THẬT của GraphRAG-Toolkit:
+        1. Chuyển đổi payload thành LlamaIndex Document & GraphRAG SourceDocument.
+        2. Chạy qua ExtractionPipeline (kèm SentenceSplitter chunker và PluggyACLPipelineDecorator).
+        3. Decorator kích hoạt các Pluggy hooks:
+           - Tiền xử lý (handle_input_docs): Lọc tài liệu theo RBAC và Tenant Isolation.
+           - Xử lý GraphRAG: Chia nhỏ chunking và trích xuất.
+           - Hậu xử lý (handle_output_doc): Che giấu thông tin nhạy cảm PII.
         """
-        # Deepcopy để không làm biến đổi dữ liệu đầu vào gốc
-        docs = copy.deepcopy(request.documents)
         context_dict = request.context.model_dump()
+        total_input_docs = len(request.documents)
+        total_input_nodes = sum(len(d.nodes) for d in request.documents)
 
-        total_input_docs = len(docs)
-        total_input_nodes = sum(len(d.nodes) for d in docs)
+        # Chuyển đổi sang GraphRAG SourceDocuments thật
+        source_docs: list[SourceDocument] = []
+        for req_doc in request.documents:
+            doc_nodes = []
+            for req_node in req_doc.nodes:
+                meta = dict(req_node.metadata)
+                meta["original_id"] = req_node.node_id
+                meta["doc_id"] = req_doc.doc_id or "default_doc"
+                doc_obj = Document(
+                    text=req_node.text,
+                    metadata=meta,
+                    id_=req_node.node_id,
+                )
+                doc_nodes.append(doc_obj)
+            if doc_nodes:
+                source_docs.append(SourceDocument(refNode=doc_nodes[0], nodes=doc_nodes))
 
+        # Cắm PluggyACLPipelineDecorator vào ExtractionPipeline của GraphRAG
         decorator = PluggyACLPipelineDecorator(context=context_dict)
+        splitter = SentenceSplitter(chunk_size=500, chunk_overlap=50)
 
-        # 1. Chạy hook lọc input
-        filtered_docs = decorator.handle_input_docs(docs)
+        pipeline = ExtractionPipeline(
+            components=[splitter],
+            extraction_decorator=decorator,
+            num_workers=1,
+            show_progress=False,
+        )
 
-        # 2. Chạy hook hậu xử lý output cho từng document
-        final_docs = []
-        for doc in filtered_docs:
-            processed_doc = decorator.handle_output_doc(doc)
-            final_docs.append(processed_doc)
+        # Chạy pipeline thật của GraphRAG-Toolkit
+        extracted_source_docs = list(pipeline.extract(source_docs))
 
-        total_output_docs = len(final_docs)
-        total_output_nodes = sum(len(d.nodes) for d in final_docs)
+        # Gom các nodes đầu ra theo doc_id
+        docs_map: dict[str, list[MockNode]] = {}
+        for s_doc in extracted_source_docs:
+            for n in getattr(s_doc, "nodes", []):
+                d_id = n.metadata.get("doc_id", "default_doc")
+                node_id = n.metadata.get("original_id", getattr(n, "node_id", "node"))
+                if d_id not in docs_map:
+                    docs_map[d_id] = []
+                # Làm sạch metadata trả về
+                clean_meta = {
+                    k: v for k, v in n.metadata.items()
+                    if not k.startswith("__aws__") and k not in ["original_id", "doc_id"]
+                }
+                docs_map[d_id].append(
+                    MockNode(
+                        node_id=node_id,
+                        text=n.text if hasattr(n, "text") else str(n),
+                        metadata=clean_meta,
+                    )
+                )
+
+        final_documents = [
+            MockSourceDocument(doc_id=d_id, nodes=nodes)
+            for d_id, nodes in docs_map.items()
+        ]
+
+        total_output_docs = len(final_documents)
+        total_output_nodes = sum(len(d.nodes) for d in final_documents)
 
         return ExtractResponse(
             total_input_docs=total_input_docs,
             total_input_nodes=total_input_nodes,
             total_output_docs=total_output_docs,
             total_output_nodes=total_output_nodes,
-            documents=final_docs,
+            documents=final_documents,
         )
 
     def get_sample_documents(self) -> list[MockSourceDocument]:
         """
-        Trả về tập dữ liệu mẫu phục vụ kiểm thử nhanh các chính sách bảo mật.
+        Dữ liệu tài liệu mẫu thực tế phục vụ kiểm thử.
         """
         return [
             MockSourceDocument(
@@ -92,5 +142,4 @@ pipeline_service = PipelineService()
 
 
 def get_pipeline_service() -> PipelineService:
-    """FastAPI Dependency Provider"""
     return pipeline_service

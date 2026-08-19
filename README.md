@@ -1,33 +1,37 @@
 # FastAPI Dynamic ACL Plugin Showcase for GraphRAG-Toolkit
 
 Ứng dụng REST API xây dựng bằng **FastAPI** và **Pluggy** nhằm trình diễn và quản lý cơ chế **Dynamic Drop-in Plugins**
-tích hợp trực tiếp vào **Extraction Pipeline** của **GraphRAG-Toolkit** (`graphrag-lexical-graph`).
+tích hợp trực tiếp vào **Extraction Pipeline THỰC TẾ** của **GraphRAG-Toolkit** (`graphrag-lexical-graph`).
 
 ---
 
 ## 🎯 Giá Trị Cốt Lõi (Core Value Proposition)
 
-> **"Khách hàng chỉ cần thả (copy) bất kỳ file Python `.py` nào vào thư mục `plugins/` $\rightarrow$ Hệ thống tự động
-nhận diện, kích hoạt và áp dụng ngay lập tức vào GraphRAG Pipeline mà KHÔNG cần khởi động lại server, KHÔNG cần sửa core
-codebase."**
+> **"Can thiệp và kiểm soát toàn bộ luồng trích xuất của GraphRAG-Toolkit mà KHÔNG cần sửa bất kỳ dòng code nào của thư
+viện. Khách hàng chỉ cần thả file Python `.py` vào thư mục `plugins/` $\rightarrow$ Hệ thống tự động nạp và áp dụng ngay
+lập tức (Zero Restart)."**
+
+👉 *Xem chi tiết tài liệu kiến trúc kỹ thuật tại: [
+`docs/architecture-graphrag-extension-point.md`](docs/architecture-graphrag-extension-point.md)*
 
 ---
 
 ## 🌟 Tính Năng Nổi Bật
 
-1. **📂 Drop-in Plugin Architecture (Zero Config & Zero Downtime)**:
+1. **⚡ Thực Thi Qua `ExtractionPipeline` Thật Của GraphRAG**:
+    - Sử dụng trực tiếp các class chuẩn `ExtractionPipeline`, `SourceDocument` từ package `graphrag-lexical-graph`.
+    - Kết nối qua abstract class `PipelineDecorator` chính thức của GraphRAG.
+2. **📂 Drop-in Plugin Architecture (Zero Config & Zero Downtime)**:
     - Thư mục `plugins/` đóng vai trò là kho plugin sống.
     - Thả file mới vào `plugins/` $\rightarrow$ Hệ thống **tự động nạp (Auto-Discover & Load)**.
     - Sửa code trong file $\rightarrow$ Hệ thống **tự động Hot-Reload version mới**.
     - Xóa file khỏi `plugins/` $\rightarrow$ Hệ thống **tự động gỡ bỏ (Unregister)**.
-2. **🛡️ Kiểm Soát Truy Cập Đa Tầng (Multi-layer ACL)**:
+3. **🛡️ Kiểm Soát Truy Cập Đa Tầng (Multi-layer ACL)**:
     - **Role-Based Access Control (RBAC)**: Lọc các Node có nhãn bảo mật `RESTRICTED` hoặc `CONFIDENTIAL` theo danh sách
       `roles` của người dùng.
     - **Tenant Isolation**: Ngăn chặn rò rỉ dữ liệu giữa các tổ chức (`tenant_id`), bảo vệ kiến trúc SaaS.
     - **PII Masking**: Tự động che giấu số điện thoại (`[REDACTED_PHONE]`) và email (`[REDACTED_EMAIL]`) ở bước xuất kết
       quả đối với người dùng thông thường.
-3. **⚡ Chuẩn PyPI**:
-    - Sử dụng package chính thức `graphrag-lexical-graph` và `pluggy` trực tiếp từ PyPI.
 
 ---
 
@@ -37,8 +41,9 @@ codebase."**
 graphrag-pluggy-example/
 ├── pyproject.toml               # Cấu hình dependencies PyPI tiêu chuẩn (uv)
 ├── README.md                    # Hướng dẫn sử dụng & Live Demo Drop-in Plugin
-├── docs/                        # Tài liệu đặc tả kỹ thuật (Spec)
-│   └── spec-fastapi-graphrag-pluggy.md
+├── docs/                        # Tài liệu đặc tả kỹ thuật & Kiến trúc
+│   ├── spec-fastapi-graphrag-pluggy.md
+│   └── architecture-graphrag-extension-point.md # Tài liệu chứng minh Extension Point
 ├── examples/                    # 📦 THƯ MỤC CHỨA PLUGIN VÍ DỤ SẴN ĐỂ DEMO
 │   └── censor_keyword.py        # File mẫu để bạn copy thử vào plugins/
 ├── plugins/                     # 📂 THƯ MỤC DROP-IN PLUGINS (Tự động quét & nạp)
@@ -55,7 +60,7 @@ graphrag-pluggy-example/
 │   │   └── pipeline_schema.py   # Pydantic models cho Extraction Pipeline & Context
 │   ├── services/
 │   │   ├── acl_manager.py       # DynamicACLManager tự động quét và quản lý thư mục plugins/
-│   │   ├── pipeline_service.py  # Service thực thi luồng trích xuất tài liệu
+│   │   ├── pipeline_service.py  # Service gọi ExtractionPipeline thật của GraphRAG
 │   │   └── pluggy_decorator.py  # Adapter cắm vào PipelineDecorator của GraphRAG
 │   └── api/
 │       └── v1/
@@ -98,14 +103,14 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ## 📋 Danh Sách Đầy Đủ Các API
 
-| Nhóm         | Method | Endpoint                            | Mô Tả                                       | Tham Số / Body                              |
-|--------------|--------|-------------------------------------|---------------------------------------------|---------------------------------------------|
-| **Pipeline** | `POST` | `/api/v1/pipeline/extract`          | Trích xuất tài liệu qua pipeline có gắn ACL | `ExtractRequest` (context + documents)      |
-| **Pipeline** | `GET`  | `/api/v1/pipeline/sample-docs`      | Lấy dữ liệu tài liệu mẫu để test nhanh      | Không cần param                             |
-| **Plugins**  | `GET`  | `/api/v1/plugins`                   | Liệt kê danh sách plugin trong `plugins/`   | `active_only=true/false`, `sync=true/false` |
-| **Plugins**  | `POST` | `/api/v1/plugins/sync`              | Đồng bộ lại toàn bộ thư mục `plugins/`      | Không cần body                              |
-| **Plugins**  | `POST` | `/api/v1/plugins/unregister/{name}` | Tắt tạm thời 1 plugin tại runtime           | Path param: `name`                          |
-| **Plugins**  | `POST` | `/api/v1/plugins/reset`             | Khôi phục trạng thái từ `plugins/`          | Không cần body                              |
+| Nhóm         | Method | Endpoint                            | Mô Tả                                           | Tham Số / Body                              |
+|--------------|--------|-------------------------------------|-------------------------------------------------|---------------------------------------------|
+| **Pipeline** | `POST` | `/api/v1/pipeline/extract`          | Trích xuất tài liệu qua ExtractionPipeline thật | `ExtractRequest` (context + documents)      |
+| **Pipeline** | `GET`  | `/api/v1/pipeline/sample-docs`      | Lấy dữ liệu tài liệu mẫu để test nhanh          | Không cần param                             |
+| **Plugins**  | `GET`  | `/api/v1/plugins`                   | Liệt kê danh sách plugin trong `plugins/`       | `active_only=true/false`, `sync=true/false` |
+| **Plugins**  | `POST` | `/api/v1/plugins/sync`              | Đồng bộ lại toàn bộ thư mục `plugins/`          | Không cần body                              |
+| **Plugins**  | `POST` | `/api/v1/plugins/unregister/{name}` | Tắt tạm thời 1 plugin tại runtime               | Path param: `name`                          |
+| **Plugins**  | `POST` | `/api/v1/plugins/reset`             | Khôi phục trạng thái từ `plugins/`              | Không cần body                              |
 
 ---
 

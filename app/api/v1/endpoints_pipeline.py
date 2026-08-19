@@ -7,29 +7,26 @@ from app.schemas.pipeline_schema import (
 )
 from app.services.pipeline_service import PipelineService, get_pipeline_service
 
-router = APIRouter(prefix="/pipeline", tags=["GraphRAG Pipeline Execution"])
+router = APIRouter(tags=["GraphRAG Pipeline Execution"])
 
 
-@router.get(
-    "/sample-docs", response_model=list[MockSourceDocument], summary="Lấy dữ liệu tài liệu mẫu"
-)
+@router.get("/pipeline/sample-docs", response_model=list[MockSourceDocument], summary="Lấy dữ liệu tài liệu mẫu")
+@router.get("/sample-docs", response_model=list[MockSourceDocument], include_in_schema=False)
 def get_sample_docs(
-    pipeline_svc: PipelineService = Depends(get_pipeline_service),
+        pipeline_svc: PipelineService = Depends(get_pipeline_service),
 ) -> list[MockSourceDocument]:
     """
-    Trả về bộ dữ liệu mẫu (public vn, restricted vn, us tenant) phục vụ việc test nhanh trên Swagger.
+    Trả về bộ dữ liệu mẫu phục vụ việc test nhanh trên Swagger.
     """
     return pipeline_svc.get_sample_documents()
 
 
-@router.post(
-    "/extract",
-    response_model=ExtractResponse,
-    summary="Chạy thử nghiệm Pipeline trích xuất tài liệu",
-)
+@router.post("/pipeline/extract", response_model=ExtractResponse, summary="Chạy trích xuất tài liệu qua Pipeline")
+@router.post("/extract", response_model=ExtractResponse, summary="Chạy trích xuất tài liệu (Alias)",
+             include_in_schema=False)
 def extract_documents(
-    request: ExtractRequest,
-    pipeline_svc: PipelineService = Depends(get_pipeline_service),
+        request: ExtractRequest,
+        pipeline_svc: PipelineService = Depends(get_pipeline_service),
 ) -> ExtractResponse:
     """
     Thực thi luồng trích xuất tài liệu:

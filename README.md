@@ -96,40 +96,102 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ---
 
-## 🎬 KỊCH BẢN DEMO THỰC TẾ: COPY PLUGIN TỰ VIẾT VÀO `plugins/` (30 GIÂY)
+## 📋 Danh Sách Đầy Đủ Các API
 
-Hệ thống đã chuẩn bị sẵn file mẫu tại **`examples/censor_keyword.py`**.
+| Nhóm         | Method | Endpoint                            | Mô Tả                                       | Tham Số / Body                              |
+|--------------|--------|-------------------------------------|---------------------------------------------|---------------------------------------------|
+| **Pipeline** | `POST` | `/api/v1/pipeline/extract`          | Trích xuất tài liệu qua pipeline có gắn ACL | `ExtractRequest` (context + documents)      |
+| **Pipeline** | `GET`  | `/api/v1/pipeline/sample-docs`      | Lấy dữ liệu tài liệu mẫu để test nhanh      | Không cần param                             |
+| **Plugins**  | `GET`  | `/api/v1/plugins`                   | Liệt kê danh sách plugin trong `plugins/`   | `active_only=true/false`, `sync=true/false` |
+| **Plugins**  | `POST` | `/api/v1/plugins/sync`              | Đồng bộ lại toàn bộ thư mục `plugins/`      | Không cần body                              |
+| **Plugins**  | `POST` | `/api/v1/plugins/unregister/{name}` | Tắt tạm thời 1 plugin tại runtime           | Path param: `name`                          |
+| **Plugins**  | `POST` | `/api/v1/plugins/reset`             | Khôi phục trạng thái từ `plugins/`          | Không cần body                              |
 
 ---
 
-### Bước 1: Xem kết quả trích xuất lúc BÌNH THƯỜNG (Admin)
+## 🎬 KỊCH BẢN LIVE DEMO: DROP-IN PLUGIN VÀO `plugins/` (30 GIÂY)
 
-Gửi request trích xuất với tài liệu mẫu:
+Hệ thống đã chuẩn bị sẵn file mẫu tại **`examples/censor_keyword.py`** với logic:
+
+- `allow_node`: Chặn bất kỳ node nào có từ khóa nhạy cảm `"sáp nhập"`.
+- `filter_output_doc`: Chèn tiền tố `[VERIFIED_2026]` vào text xuất ra.
+
+---
+
+### Bước 1: Gọi API Extract lúc BÌNH THƯỜNG (Admin)
+
+Gửi request trích xuất:
 
 ```bash
-curl -s -X POST "http://localhost:8000/api/v1/pipeline/extract" \
+curl -X POST "http://localhost:8000/api/v1/pipeline/extract" \
   -H "Content-Type: application/json" \
   -d '{
-    "context": { "user_id": "admin_01", "tenant_id": "vn", "roles": ["admin"] },
+    "context": {
+      "user_id": "admin_01",
+      "tenant_id": "vn",
+      "roles": ["admin"]
+    },
     "documents": [
       {
         "doc_id": "doc_vn",
         "nodes": [
-          { "node_id": "n1", "text": "Báo cáo doanh thu Q2", "metadata": {"classification": "PUBLIC", "tenant_id": "vn"} },
-          { "node_id": "n2", "text": "Kế hoạch sáp nhập đối thủ", "metadata": {"classification": "RESTRICTED", "tenant_id": "vn"} }
+          {
+            "node_id": "n1",
+            "text": "Báo cáo doanh thu Q2 tăng trưởng tốt.",
+            "metadata": {"classification": "PUBLIC", "tenant_id": "vn"}
+          },
+          {
+            "node_id": "n2",
+            "text": "Kế hoạch sáp nhập đối thủ cạnh tranh vào cuối năm.",
+            "metadata": {"classification": "RESTRICTED", "tenant_id": "vn"}
+          }
         ]
       }
     ]
-  }' | jq '.documents[0].nodes'
+  }'
 ```
 
-👉 **Kết quả**: Ra đủ **2 nodes** (`n1` và `n2`) với text gốc ban đầu.
+👉 **Kết quả trả về**:
+
+```json
+{
+	"total_input_docs": 1,
+	"total_input_nodes": 2,
+	"total_output_docs": 1,
+	"total_output_nodes": 2,
+	"documents": [
+		{
+			"doc_id": "doc_vn",
+			"nodes": [
+				{
+					"node_id": "n1",
+					"text": "Báo cáo doanh thu Q2 tăng trưởng tốt.",
+					"metadata": {
+						"classification": "PUBLIC",
+						"tenant_id": "vn"
+					}
+				},
+				{
+					"node_id": "n2",
+					"text": "Kế hoạch sáp nhập đối thủ cạnh tranh vào cuối năm.",
+					"metadata": {
+						"classification": "RESTRICTED",
+						"tenant_id": "vn"
+					}
+				}
+			]
+		}
+	]
+}
+```
+
+*(Admin xem được đầy đủ cả 2 nodes `n1` và `n2`)*.
 
 ---
 
-### Bước 2: COPY file plugin vào thư mục `plugins/`
+### Bước 2: THẢ FILE PLUGIN VÀO THƯ MỤC `plugins/`
 
-Chỉ cần chạy đúng 1 lệnh copy (hoặc kéo thả file trên giao diện OS):
+Chạy lệnh copy file mẫu vào thư mục `plugins/`:
 
 ```bash
 cp examples/censor_keyword.py plugins/
@@ -137,67 +199,79 @@ cp examples/censor_keyword.py plugins/
 
 ---
 
-### Bước 3: Gửi lại request ở Bước 1 $\rightarrow$ Tự động áp dụng ngay lập tức!
+### Bước 3: GỬI LẠI ĐÚNG REQUEST Ở BƯỚC 1 $\rightarrow$ KẾT QUẢ THAY ĐỔI NGAY
 
-Gửi lại request trích xuất:
+Gửi lại đúng lệnh `curl` ở Bước 1:
 
 ```bash
-curl -s -X POST "http://localhost:8000/api/v1/pipeline/extract" \
+curl -X POST "http://localhost:8000/api/v1/pipeline/extract" \
   -H "Content-Type: application/json" \
   -d '{
-    "context": { "user_id": "admin_01", "tenant_id": "vn", "roles": ["admin"] },
+    "context": {
+      "user_id": "admin_01",
+      "tenant_id": "vn",
+      "roles": ["admin"]
+    },
     "documents": [
       {
         "doc_id": "doc_vn",
         "nodes": [
-          { "node_id": "n1", "text": "Báo cáo doanh thu Q2", "metadata": {"classification": "PUBLIC", "tenant_id": "vn"} },
-          { "node_id": "n2", "text": "Kế hoạch sáp nhập đối thủ", "metadata": {"classification": "RESTRICTED", "tenant_id": "vn"} }
+          {
+            "node_id": "n1",
+            "text": "Báo cáo doanh thu Q2 tăng trưởng tốt.",
+            "metadata": {"classification": "PUBLIC", "tenant_id": "vn"}
+          },
+          {
+            "node_id": "n2",
+            "text": "Kế hoạch sáp nhập đối thủ cạnh tranh vào cuối năm.",
+            "metadata": {"classification": "RESTRICTED", "tenant_id": "vn"}
+          }
         ]
       }
     ]
-  }' | jq '.documents[0].nodes'
+  }'
 ```
 
-👉 **Kết quả quan sát thấy ngay**:
+👉 **Kết quả trả về ngay lập tức**:
 
 ```json
-[
-	{
-		"node_id": "n1",
-		"text": "[VERIFIED_2026] Báo cáo doanh thu Q2",
-		"metadata": {
-			"classification": "PUBLIC",
-			"tenant_id": "vn"
+{
+	"total_input_docs": 1,
+	"total_input_nodes": 2,
+	"total_output_docs": 1,
+	"total_output_nodes": 1,
+	"documents": [
+		{
+			"doc_id": "doc_vn",
+			"nodes": [
+				{
+					"node_id": "n1",
+					"text": "[VERIFIED_2026] Báo cáo doanh thu Q2 tăng trưởng tốt.",
+					"metadata": {
+						"classification": "PUBLIC",
+						"tenant_id": "vn"
+					}
+				}
+			]
 		}
-	}
-]
+	]
+}
 ```
 
-✅ **Minh chứng 1**: Node `n2` chứa từ "sáp nhập" **đã bị chặn hoàn toàn**.  
-✅ **Minh chứng 2**: Node `n1` **tự động gắn watermark** `[VERIFIED_2026]`.
+✅ **Minh chứng 1**: Node `n2` chứa từ `"sáp nhập"` **đã bị lọc bỏ hoàn toàn** (`total_output_nodes: 1`).  
+✅ **Minh chứng 2**: Node `n1` **tự động được chèn tiền tố** `[VERIFIED_2026]` vào văn bản.
 
 ---
 
-### Bước 4: Khi muốn gỡ bỏ Plugin
+### Bước 4: GỠ BỎ PLUGIN
 
-Chỉ cần xóa file khỏi thư mục `plugins/`:
+Xóa file khỏi thư mục `plugins/`:
 
 ```bash
 rm plugins/censor_keyword.py
 ```
 
-*(Chạy lại Bước 1 sẽ lập tức trở về kết quả gốc ban đầu mà không cần restart server)*.
-
----
-
-## 📋 Bảng Tra Cứu API Quản Lý Plugin
-
-| Method | Endpoint                            | Mô Tả                                          | Tham Số / Query                                                   |
-|--------|-------------------------------------|------------------------------------------------|-------------------------------------------------------------------|
-| `GET`  | `/api/v1/plugins`                   | Liệt kê plugins trong thư mục `plugins/`       | `active_only=true` (chỉ plugin đang bật), `sync=true` (auto-sync) |
-| `POST` | `/api/v1/plugins/sync`              | Quét và đồng bộ lại thư mục `plugins/`         | Không cần payload                                                 |
-| `POST` | `/api/v1/plugins/unregister/{name}` | Tắt tạm thời một plugin khỏi runtime           | Path param: `name`                                                |
-| `POST` | `/api/v1/plugins/reset`             | Đồng bộ và khôi phục lại toàn bộ từ `plugins/` | Không cần payload                                                 |
+*(Gửi lại request ở Bước 1 $\rightarrow$ Kết quả lập tức trở về 2 nodes ban đầu mà không cần restart server!)*
 
 ---
 
@@ -209,7 +283,7 @@ Chạy toàn bộ 14 automated tests:
 uv run pytest -v
 ```
 
-Kiểm tra định dạng và code quality:
+Kiểm tra code quality:
 
 ```bash
 uv run ruff check .
